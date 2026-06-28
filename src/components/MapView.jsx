@@ -4,7 +4,7 @@ import {
   useJsApiLoader,
   OverlayViewF,
   OverlayView,
-  HeatmapLayer,
+  CircleF,
 } from '@react-google-maps/api';
 import { DEFAULT_CENTER, DEFAULT_ZOOM, categoryMeta, issueColor } from '../lib/constants.js';
 import { coordsFromIssue } from '../lib/format.js';
@@ -12,17 +12,14 @@ import { EmptyState } from './Spinner.jsx';
 
 const MAPS_KEY = import.meta.env.VITE_GOOGLE_MAPS_KEY || '';
 
-// Stable reference — required by useJsApiLoader so the loader isn't re-created.
-const MAP_LIBRARIES = ['visualization'];
-
-// Heatmap gradient in the Civic Night palette (transparent → civic → urgent).
-const HEATMAP_GRADIENT = [
-  'rgba(59,130,246,0)',
-  'rgba(59,130,246,0.6)',
-  'rgba(99,102,241,0.8)',
-  'rgba(251,113,133,0.9)',
-  'rgba(251,113,133,1)',
-];
+// Density "heatmap" colour by severity (Google removed HeatmapLayer in Maps
+// JS v3.65, so we approximate it with translucent overlapping circles).
+function severityColor(sev) {
+  const s = Number(sev) || 3;
+  if (s >= 4) return '#FB7185'; // urgent
+  if (s === 3) return '#6366F1'; // signal
+  return '#3B82F6'; // civic
+}
 
 // Civic-night cartographic styling — deep navy, blue roads.
 const MAP_STYLES = [
@@ -96,7 +93,6 @@ export default function MapView({
   const { isLoaded, loadError } = useJsApiLoader({
     id: 'community-hero-gmaps',
     googleMapsApiKey: MAPS_KEY,
-    libraries: MAP_LIBRARIES,
     // Only attempt to load when a key is present — keeps build & key-less dev safe.
     preventGoogleFontsLoading: true,
   });
@@ -140,14 +136,17 @@ export default function MapView({
     [issues]
   );
 
-  // Heatmap points weighted by severity — needs the Maps API for LatLng.
-  const heatData = useMemo(() => {
-    if (!isLoaded || !window.google?.maps) return [];
-    return pins.map(({ issue, coords }) => ({
-      location: new window.google.maps.LatLng(coords.lat, coords.lng),
-      weight: Math.max(1, Number(issue.severity) || 3),
-    }));
-  }, [isLoaded, pins]);
+  // Density blobs (severity-weighted radius/colour) used for the heatmap mode.
+  const heatBlobs = useMemo(
+    () =>
+      pins.map(({ issue, coords }) => ({
+        id: issue._id,
+        center: coords,
+        color: severityColor(issue.severity),
+        radius: 70 + (Number(issue.severity) || 3) * 30, // ~160–220m by severity
+      })),
+    [pins]
+  );
 
   // Newly added OverlayViews occasionally don't paint until the map's next
   // redraw — so when the pin set changes, nudge the map to force a repaint.
@@ -221,12 +220,22 @@ export default function MapView({
             ))
           : null}
 
-        {mode === 'heat' && heatData.length ? (
-          <HeatmapLayer
-            data={heatData}
-            options={{ radius: 28, opacity: 0.75, gradient: HEATMAP_GRADIENT }}
-          />
-        ) : null}
+        {mode === 'heat'
+          ? heatBlobs.map((b) => (
+              <CircleF
+                key={b.id}
+                center={b.center}
+                radius={b.radius}
+                options={{
+                  strokeWeight: 0,
+                  fillColor: b.color,
+                  fillOpacity: 0.22,
+                  clickable: false,
+                  zIndex: 1,
+                }}
+              />
+            ))
+          : null}
       </GoogleMap>
 
       {/* Pins / Heatmap toggle */}

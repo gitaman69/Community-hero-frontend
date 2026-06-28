@@ -4,9 +4,22 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import StatusBadge from '../components/StatusBadge.jsx';
 import FilterChips from '../components/FilterChips.jsx';
 import Spinner, { EmptyState } from '../components/Spinner.jsx';
-import { fetchIssues, updateIssueStatus } from '../lib/api.js';
-import { CATEGORIES, STATUSES, categoryMeta, isUrgent } from '../lib/constants.js';
+import { fetchIssues, fetchSla, updateIssueStatus } from '../lib/api.js';
+import { CATEGORIES, STATUSES, categoryMeta, isResolved, isUrgent } from '../lib/constants.js';
 import { fmtTimestamp, fmtCoord, coordsFromIssue } from '../lib/format.js';
+
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+// Default resolution target (days) when no historical SLA exists for a category.
+const DEFAULT_SLA_DAYS = 14;
+
+// An open issue is "overdue" once its age exceeds the category's typical
+// resolution time (from historical data, or a sane default).
+function overdueDays(issue, slaByCategory) {
+  if (isResolved(issue.status) || !issue.createdAt) return 0;
+  const target = slaByCategory?.[issue.category]?.avgDays ?? DEFAULT_SLA_DAYS;
+  const ageDays = (Date.now() - new Date(issue.createdAt).getTime()) / MS_PER_DAY;
+  return ageDays > target ? Math.round(ageDays - target) : 0;
+}
 
 export default function Admin() {
   const queryClient = useQueryClient();
@@ -18,6 +31,9 @@ export default function Admin() {
     queryFn: () => fetchIssues({ category, status }),
     refetchInterval: 20000,
   });
+
+  const slaQuery = useQuery({ queryKey: ['sla'], queryFn: fetchSla, staleTime: 60000 });
+  const slaByCategory = slaQuery.data?.byCategory;
 
   const issues = useMemo(() => data ?? [], [data]);
 
@@ -66,7 +82,12 @@ export default function Admin() {
             </thead>
             <tbody>
               {issues.map((issue) => (
-                <AdminRow key={issue._id} issue={issue} queryClient={queryClient} />
+                <AdminRow
+                  key={issue._id}
+                  issue={issue}
+                  queryClient={queryClient}
+                  overdue={overdueDays(issue, slaByCategory)}
+                />
               ))}
             </tbody>
           </table>
@@ -76,7 +97,7 @@ export default function Admin() {
   );
 }
 
-function AdminRow({ issue, queryClient }) {
+function AdminRow({ issue, queryClient, overdue = 0 }) {
   const cat = categoryMeta(issue.category);
   const coords = coordsFromIssue(issue);
 
@@ -137,6 +158,14 @@ function AdminRow({ issue, queryClient }) {
       </td>
       <td className="px-3 py-3">
         <StatusBadge status={issue.status} urgent={isUrgent(issue)} />
+        {overdue > 0 ? (
+          <div
+            className="code mt-1 inline-block rounded bg-urgent/15 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-urgent"
+            title="Past its typical resolution time"
+          >
+            ⚠ Overdue · {overdue}d
+          </div>
+        ) : null}
       </td>
       <td className="px-3 py-3">
         <span className="code text-[10px] text-ink/45">{fmtTimestamp(issue.createdAt)}</span>

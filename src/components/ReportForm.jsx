@@ -2,9 +2,10 @@ import { useEffect, useRef, useState } from 'react';
 import { useGeolocation } from '../lib/useGeolocation.js';
 import { fmtCoord } from '../lib/format.js';
 import Spinner from './Spinner.jsx';
+import NearbyDuplicates from './NearbyDuplicates.jsx';
 
 // Capture/upload a photo + GPS, then hand the payload to `onSubmit`.
-export default function ReportForm({ onSubmit, submitting }) {
+export default function ReportForm({ onSubmit, submitting, onConfirmedExisting }) {
   const [file, setFile] = useState(null);
   const [preview, setPreview] = useState(null);
   const [error, setError] = useState(null);
@@ -123,6 +124,9 @@ export default function ReportForm({ onSubmit, submitting }) {
           </p>
         ) : null}
       </div>
+
+      {/* "Already reported?" — offer to confirm a nearby issue instead. */}
+      <NearbyDuplicates coords={coords} onConfirmed={onConfirmedExisting} />
 
       {error ? (
         <p role="alert" className="rounded-md bg-signal/10 px-3 py-2 text-sm text-signal">

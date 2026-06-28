@@ -4,9 +4,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import StatusBadge from '../components/StatusBadge.jsx';
 import Spinner, { EmptyState } from '../components/Spinner.jsx';
 import ConfirmDialog from '../components/ConfirmDialog.jsx';
-import { confirmIssue, deleteIssue, fetchIssue } from '../lib/api.js';
+import LetterModal from '../components/LetterModal.jsx';
+import { confirmIssue, deleteIssue, fetchIssue, fetchIssueLetter, fetchSla } from '../lib/api.js';
 import { normalizeIssueDetail, coordsFromIssue, fmtCoord, fmtTimestamp, issueImage } from '../lib/format.js';
-import { categoryMeta, isUrgent, statusLabel } from '../lib/constants.js';
+import { categoryMeta, isResolved, isUrgent, statusLabel } from '../lib/constants.js';
 import { useAuth } from '../lib/AuthContext.jsx';
 
 export default function IssueDetail() {
@@ -16,6 +17,7 @@ export default function IssueDetail() {
   const { isAuthenticated, user, isAdmin } = useAuth();
   const [confirmCount, setConfirmCount] = useState(null);
   const [askDelete, setAskDelete] = useState(false);
+  const [letterOpen, setLetterOpen] = useState(false);
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['issue', id],
@@ -23,7 +25,16 @@ export default function IssueDetail() {
     refetchInterval: 15000,
   });
 
+  const slaQuery = useQuery({ queryKey: ['sla'], queryFn: fetchSla, staleTime: 60000 });
+
+  const letterMutation = useMutation({ mutationFn: () => fetchIssueLetter(id) });
+
   const { issue, statusUpdates } = useMemo(() => normalizeIssueDetail(data), [data]);
+
+  const openLetter = () => {
+    setLetterOpen(true);
+    if (!letterMutation.data && !letterMutation.isPending) letterMutation.mutate();
+  };
 
   const confirmMutation = useMutation({
     mutationFn: () => confirmIssue(id),
@@ -68,6 +79,17 @@ export default function IssueDetail() {
   const img = issueImage(issue);
   const urgent = isUrgent(issue);
   const confirmations = confirmCount ?? issue.confirmations ?? 0;
+  const resolved = isResolved(issue.status);
+
+  // "Issues like this resolve in ~X days" from historical SLA data.
+  const slaForCat = slaQuery.data?.byCategory?.[issue.category];
+  const resolveEstimate =
+    !resolved && slaForCat?.avgDays != null && slaForCat.count > 0
+      ? slaForCat.avgDays
+      : null;
+
+  const duplicateOfId =
+    typeof issue.duplicateOf === 'string' ? issue.duplicateOf : issue.duplicateOf?._id;
 
   const reporterId =
     typeof issue.reportedBy === 'string' ? issue.reportedBy : issue.reportedBy?._id;
@@ -104,6 +126,23 @@ export default function IssueDetail() {
           </button>
         ) : null}
       </div>
+
+      {duplicateOfId ? (
+        <div className="mt-3 flex items-center gap-2 rounded-lg border border-signal/40 bg-signal/5 px-3 py-2 text-sm text-ink/80">
+          <span className="text-signal" aria-hidden="true">
+            ↪
+          </span>
+          <span>
+            This report was merged into an earlier nearby report.{' '}
+            <Link
+              to={`/issues/${duplicateOfId}`}
+              className="text-civic underline-offset-2 hover:underline"
+            >
+              View the active report →
+            </Link>
+          </span>
+        </div>
+      ) : null}
 
       <div className="mt-3 grid gap-6 md:grid-cols-[1.2fr_1fr]">
         {/* Photo */}
@@ -143,19 +182,39 @@ export default function IssueDetail() {
             <Row label="CONFIRMS" value={String(confirmations)} />
           </dl>
 
+          {resolveEstimate != null ? (
+            <div className="mt-4 flex items-center gap-2 rounded-lg border border-verified/30 bg-verified/5 px-3 py-2">
+              <span className="text-verified" aria-hidden="true">
+                ⏱
+              </span>
+              <p className="text-xs text-ink/75">
+                Issues like this typically resolve in{' '}
+                <span className="font-semibold text-ink">~{resolveEstimate} days</span>
+                <span className="text-ink/45"> (based on {slaForCat.count} resolved)</span>
+              </p>
+            </div>
+          ) : null}
+
           {isAuthenticated ? (
-            <button
-              type="button"
-              onClick={() => confirmMutation.mutate()}
-              disabled={confirmMutation.isPending}
-              className="btn-ghost mt-4 disabled:opacity-60"
-            >
-              {confirmMutation.isPending ? (
-                <Spinner size={14} label="Confirming…" />
-              ) : (
-                <>👍 I’ve seen this too ({confirmations})</>
-              )}
-            </button>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => confirmMutation.mutate()}
+                disabled={confirmMutation.isPending}
+                className="btn-ghost disabled:opacity-60"
+              >
+                {confirmMutation.isPending ? (
+                  <Spinner size={14} label="Confirming…" />
+                ) : (
+                  <>👍 I’ve seen this too ({confirmations})</>
+                )}
+              </button>
+              {issue.aiProcessed && !duplicateOfId ? (
+                <button type="button" onClick={openLetter} className="btn-signal">
+                  ✉ Draft complaint letter
+                </button>
+              ) : null}
+            </div>
           ) : (
             <p className="mt-4 text-xs text-ink/50">
               <Link to="/login" className="text-civic underline-offset-2 hover:underline">
@@ -210,6 +269,14 @@ export default function IssueDetail() {
         busy={deleteMutation.isPending}
         onCancel={() => setAskDelete(false)}
         onConfirm={() => deleteMutation.mutate()}
+      />
+
+      <LetterModal
+        open={letterOpen}
+        letter={letterMutation.data}
+        loading={letterMutation.isPending}
+        error={letterMutation.isError}
+        onClose={() => setLetterOpen(false)}
       />
     </div>
   );

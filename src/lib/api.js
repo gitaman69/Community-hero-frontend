@@ -63,6 +63,22 @@ export async function createIssue({ image, lat, lng }) {
   return data; // the created issue
 }
 
+export async function fetchNearbyIssues({ lat, lng, radius, category } = {}) {
+  const { data } = await api.get('/issues/nearby', {
+    params: Object.fromEntries(
+      Object.entries({ lat, lng, radius, category }).filter(
+        ([, v]) => v !== undefined && v !== null && v !== ''
+      )
+    ),
+  });
+  return Array.isArray(data) ? data : [];
+}
+
+export async function fetchIssueLetter(id) {
+  const { data } = await api.post(`/issues/${id}/letter`);
+  return data; // { subject, body, department }
+}
+
 export async function confirmIssue(id) {
   const { data } = await api.post(`/issues/${id}/confirm`);
   return data; // { confirmations }
@@ -88,6 +104,16 @@ export async function fetchStats() {
 export async function fetchLeaderboard() {
   const { data } = await api.get('/stats/leaderboard');
   return data; // { leaders: [...], updatedAt }
+}
+
+export async function fetchTrends() {
+  const { data } = await api.get('/stats/trends');
+  return data; // { days, reportedByDay, resolvedByDay, byCategory, byStatus, topAreas, ... }
+}
+
+export async function fetchSla() {
+  const { data } = await api.get('/stats/sla');
+  return data; // { byCategory: { cat: { avgDays, count } }, overallAvgDays, sampleSize }
 }
 
 export default api;

@@ -47,6 +47,7 @@ export default function Navbar({ areaCode }) {
   const appLinks = (
     <>
       <NavItem to="/map">Map</NavItem>
+      <NavItem to="/analytics">Analytics</NavItem>
       <NavItem to="/standings">Standings</NavItem>
       <NavItem to="/my-reports">My reports</NavItem>
       {isAdmin ? <NavItem to="/admin">Admin</NavItem> : null}

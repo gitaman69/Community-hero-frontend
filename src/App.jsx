@@ -9,6 +9,7 @@ import Report from './pages/Report.jsx';
 import IssueDetail from './pages/IssueDetail.jsx';
 import MyReports from './pages/MyReports.jsx';
 import Standings from './pages/Standings.jsx';
+import Analytics from './pages/Analytics.jsx';
 import Admin from './pages/Admin.jsx';
 import Login from './pages/Login.jsx';
 import Register from './pages/Register.jsx';
@@ -77,6 +78,14 @@ export default function App() {
             element={
               <ProtectedRoute>
                 <Standings />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/analytics"
+            element={
+              <ProtectedRoute>
+                <Analytics />
               </ProtectedRoute>
             }
           />

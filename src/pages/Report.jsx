@@ -104,7 +104,11 @@ export default function Report() {
                 {error}
               </p>
             ) : null}
-            <ReportForm onSubmit={handleSubmit} submitting={submitting} />
+            <ReportForm
+              onSubmit={handleSubmit}
+              submitting={submitting}
+              onConfirmedExisting={(id) => navigate(`/issues/${id}`)}
+            />
           </>
         ) : null}
 

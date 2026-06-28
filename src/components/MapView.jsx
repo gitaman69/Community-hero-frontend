@@ -1,10 +1,28 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { GoogleMap, useJsApiLoader, OverlayViewF, OverlayView } from '@react-google-maps/api';
+import {
+  GoogleMap,
+  useJsApiLoader,
+  OverlayViewF,
+  OverlayView,
+  HeatmapLayer,
+} from '@react-google-maps/api';
 import { DEFAULT_CENTER, DEFAULT_ZOOM, categoryMeta, issueColor } from '../lib/constants.js';
 import { coordsFromIssue } from '../lib/format.js';
 import { EmptyState } from './Spinner.jsx';
 
 const MAPS_KEY = import.meta.env.VITE_GOOGLE_MAPS_KEY || '';
+
+// Stable reference — required by useJsApiLoader so the loader isn't re-created.
+const MAP_LIBRARIES = ['visualization'];
+
+// Heatmap gradient in the Civic Night palette (transparent → civic → urgent).
+const HEATMAP_GRADIENT = [
+  'rgba(59,130,246,0)',
+  'rgba(59,130,246,0.6)',
+  'rgba(99,102,241,0.8)',
+  'rgba(251,113,133,0.9)',
+  'rgba(251,113,133,1)',
+];
 
 // Civic-night cartographic styling — deep navy, blue roads.
 const MAP_STYLES = [
@@ -78,12 +96,15 @@ export default function MapView({
   const { isLoaded, loadError } = useJsApiLoader({
     id: 'community-hero-gmaps',
     googleMapsApiKey: MAPS_KEY,
+    libraries: MAP_LIBRARIES,
     // Only attempt to load when a key is present — keeps build & key-less dev safe.
     preventGoogleFontsLoading: true,
   });
 
   const resolvedCenter = center || DEFAULT_CENTER;
   const [mapReady, setMapReady] = useState(false);
+  // 'pins' shows individual reports; 'heat' shows a density heatmap.
+  const [mode, setMode] = useState('pins');
 
   const onLoad = useCallback(
     (map) => {
@@ -118,6 +139,15 @@ export default function MapView({
         .filter((p) => p.coords),
     [issues]
   );
+
+  // Heatmap points weighted by severity — needs the Maps API for LatLng.
+  const heatData = useMemo(() => {
+    if (!isLoaded || !window.google?.maps) return [];
+    return pins.map(({ issue, coords }) => ({
+      location: new window.google.maps.LatLng(coords.lat, coords.lng),
+      weight: Math.max(1, Number(issue.severity) || 3),
+    }));
+  }, [isLoaded, pins]);
 
   // Newly added OverlayViews occasionally don't paint until the map's next
   // redraw — so when the pin set changes, nudge the map to force a repaint.
@@ -174,21 +204,49 @@ export default function MapView({
         onUnmount={onUnmount}
         onIdle={handleIdle}
       >
-        {pins.map(({ issue, coords }) => (
-          <OverlayViewF
-            key={issue._id}
-            position={coords}
-            mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}
-          >
-            <Pin
-              issue={issue}
-              isNew={newIssueIds?.has?.(issue._id)}
-              active={activeId === issue._id}
-              onSelect={onSelect}
-            />
-          </OverlayViewF>
-        ))}
+        {mode === 'pins'
+          ? pins.map(({ issue, coords }) => (
+              <OverlayViewF
+                key={issue._id}
+                position={coords}
+                mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}
+              >
+                <Pin
+                  issue={issue}
+                  isNew={newIssueIds?.has?.(issue._id)}
+                  active={activeId === issue._id}
+                  onSelect={onSelect}
+                />
+              </OverlayViewF>
+            ))
+          : null}
+
+        {mode === 'heat' && heatData.length ? (
+          <HeatmapLayer
+            data={heatData}
+            options={{ radius: 28, opacity: 0.75, gradient: HEATMAP_GRADIENT }}
+          />
+        ) : null}
       </GoogleMap>
+
+      {/* Pins / Heatmap toggle */}
+      <div className="absolute right-3 top-3 z-10 flex rounded-full border border-white/10 bg-paper/85 p-0.5 text-xs shadow-xl backdrop-blur-xl">
+        {[
+          { key: 'pins', label: 'Pins' },
+          { key: 'heat', label: 'Heatmap' },
+        ].map((m) => (
+          <button
+            key={m.key}
+            type="button"
+            onClick={() => setMode(m.key)}
+            className={`rounded-full px-3 py-1 font-medium transition-colors ${
+              mode === m.key ? 'bg-civic text-white' : 'text-ink/60 hover:text-white'
+            }`}
+          >
+            {m.label}
+          </button>
+        ))}
+      </div>
 
       {pins.length === 0 ? (
         <div className="pointer-events-none absolute inset-x-0 bottom-6 flex justify-center">
